@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ecliseutils"
+version = "0.1.0"
+description = "Shared general-purpose research utilities (tensor/module batching, linear algebra, ARE/ODE solvers, labeled arrays, plotting) used across multiple projects."
+requires-python = ">=3.9"
+dependencies = [
+    "numpy",
+    "torch",
+    "tensordict",
+    "einops",
+    "scipy",
+    "matplotlib",
+    "tqdm",
+    "pandas",
+]
+
+[project.optional-dependencies]
+# Required only for the ODE integration helpers in ``ecliseutils.ode``.
+ode = ["torchdiffeq"]
+
+[tool.setuptools.packages.find]
+where = ["src"]

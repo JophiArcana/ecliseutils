@@ -1,0 +1,12 @@
+# Core runtime dependencies for ecliseutils (see pyproject.toml)
+numpy
+torch
+tensordict
+einops
+scipy
+matplotlib
+tqdm
+pandas
+
+# Optional: required only for ecliseutils.ode (batch_odeint) helpers
+torchdiffeq
