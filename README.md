@@ -26,7 +26,27 @@ that previously lived as diverged copies inside each project's
 | `timing` | `Timer`, `print_disabled`, `print_enabled`, `track_calls`. |
 | `plotting` | `color`, `confidence_ellipse`. |
 
-## Install (editable)
+## Install
+
+From PyPI (once published):
+
+```bash
+pip install ecliseutils
+# with ODE support:
+pip install "ecliseutils[ode]"
+```
+
+From GitHub (works on any device, no clone needed):
+
+```bash
+pip install "git+https://github.com/JophiArcana/ecliseutils.git"
+# pin to a release:
+pip install "git+https://github.com/JophiArcana/ecliseutils.git@v0.1.0"
+# with ODE support:
+pip install "ecliseutils[ode] @ git+https://github.com/JophiArcana/ecliseutils.git"
+```
+
+Editable (for local development):
 
 ```bash
 pip install -e /path/to/ecliseutils

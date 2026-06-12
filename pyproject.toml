@@ -6,7 +6,30 @@ build-backend = "setuptools.build_meta"
 name = "ecliseutils"
 version = "0.1.0"
 description = "Shared general-purpose research utilities (tensor/module batching, linear algebra, ARE/ODE solvers, labeled arrays, plotting) used across multiple projects."
+readme = "README.md"
+license = { text = "MIT" }
 requires-python = ">=3.9"
+authors = [{ name = "Wentinn Liao" }]
+keywords = [
+    "pytorch",
+    "numpy",
+    "linear-algebra",
+    "research-utilities",
+    "vmap",
+    "tensordict",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering",
+]
 dependencies = [
     "numpy",
     "torch",
@@ -21,6 +44,11 @@ dependencies = [
 [project.optional-dependencies]
 # Required only for the ODE integration helpers in ``ecliseutils.ode``.
 ode = ["torchdiffeq"]
+
+[project.urls]
+Homepage = "https://github.com/JophiArcana/ecliseutils"
+Repository = "https://github.com/JophiArcana/ecliseutils"
+Issues = "https://github.com/JophiArcana/ecliseutils/issues"
 
 [tool.setuptools.packages.find]
 where = ["src"]
