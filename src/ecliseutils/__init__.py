@@ -82,7 +82,7 @@ from .are import (
 )
 from .ode import linspace, geomspace, batch_odeint
 from .ensemble import EnsembleModule, DEFAULT_SPLIT_SIZE
-from .fast_conv_scan import ConvScanFn, conv_scan
+from .fast_conv_scan import ConvScanFn, conv_scan, DenseLinearScanFn, dense_linear_scan
 from .recursive import rgetattr, rsetattr, rhasattr, rgetitem, rsetitem
 from .dicts import flatten_nested_dict, map_dict, nested_type, print_dict, call_func_with_kwargs, hash_hex
 from .io import torch_load, empty_cache, reset_seed, model_size

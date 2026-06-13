@@ -21,6 +21,7 @@ MANIFEST
 venv/
 env/
 ENV/
+.conda/
 .python-version
 
 # ---- Test / type / lint caches ----
