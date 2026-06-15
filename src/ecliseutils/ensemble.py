@@ -85,9 +85,10 @@ class EnsembleModule:
             dataset: TensorDict,
             kwargs: dict[str, Any] = MappingProxyType(dict()),
             split_size: int = DEFAULT_SPLIT_SIZE,
+            method: str = "forward",
     ) -> TensorDict:
         def per_chunk(slice_td: TensorDict) -> TensorDict:
-            return TensorDict(run_module_arr(self.pair, slice_td, kwargs), batch_size=slice_td.shape)
+            return TensorDict(run_module_arr(self.pair, slice_td, kwargs, method=method), batch_size=slice_td.shape)
         return self._chunked_apply(dataset, per_chunk, split_size)
 
     @staticmethod
@@ -102,12 +103,13 @@ class EnsembleModule:
             kwargs: dict[str, Any] = MappingProxyType(dict()),
             split_size: int = DEFAULT_SPLIT_SIZE,
             loss_fn: "Any" = None,
+            method: str = "forward",
     ) -> TensorDict:
         loss_fn = self._default_gradient_loss if loss_fn is None else loss_fn
 
         def per_chunk(slice_td: TensorDict) -> TensorDict:
             slice_td = TensorDict.from_dict(slice_td, batch_size=slice_td.shape)
-            out = loss_fn(self.run(slice_td, kwargs, split_size))
+            out = loss_fn(self.run(slice_td, kwargs, split_size, method=method))
             params = OrderedDict({k: v for k, v in slice_td.items() if v.requires_grad})
             return TensorDict(dict(zip(
                 params.keys(),

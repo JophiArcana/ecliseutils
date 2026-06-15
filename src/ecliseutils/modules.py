@@ -28,6 +28,7 @@ __all__ = [
     "stack_module_arr_preserve_reference",
     "run_module_arr",
     "multi_vmap",
+    "FunctionalMethod",
     "buffer_dict",
     "td_items",
     "td_get",
@@ -36,6 +37,36 @@ __all__ = [
     "broadcast_shapes",
     "get_all_hooks",
 ]
+
+
+class FunctionalMethod(nn.Module):
+    """Expose an arbitrary *method* of ``module`` as this adapter's ``forward`` so
+    it can be driven by :func:`torch.func.functional_call` with substituted
+    parameters, without writing a bespoke wrapper subclass.
+
+    The parameter / buffer / submodule containers are shared *by reference* with
+    ``module``, so (a) the names ``functional_call`` sees are identical to
+    ``module``'s (no wrapper prefix), and (b) the substitution performed by
+    ``functional_call`` reaches ``module`` itself for the duration of the call --
+    which is what lets a bound method that reads ``module.<attr>`` observe the
+    substituted (fast-)weights.
+
+    The wrapped module is stored off the module registry (``object.__setattr__``)
+    so it is not itself a submodule of the adapter (no recursion / duplicate
+    parameters).
+    """
+
+    def __init__(self, module: nn.Module, method_name: str = "forward"):
+        super().__init__()
+        object.__setattr__(self, "_src_module", module)
+        object.__setattr__(self, "_method_name", method_name)
+        # Share state containers by reference (see class docstring).
+        object.__setattr__(self, "_parameters", module._parameters)
+        object.__setattr__(self, "_buffers", module._buffers)
+        object.__setattr__(self, "_modules", module._modules)
+
+    def forward(self, *args: Any, **kwargs: Any) -> Any:
+        return getattr(self._src_module, self._method_name)(*args, **kwargs)
 
 
 def stack_tensor_arr(tensor_arr: "np.ndarray", dim: int = 0) -> Union[torch.Tensor, TensorDict]:
@@ -85,11 +116,16 @@ def run_module_arr(
         args: Any,  # Note: a TensorDict is only checked for as the immediate argument and will not work inside a nested structure
         kwargs: dict[str, Any] = MappingProxyType(dict()),
         vmap: bool = True,
+        method: str = "forward",
 ) -> Any:
     if "TensorDict" in type(args).__name__:
         args = args.to_dict()
 
     reference_module, module_td = model_pair
+    # Drive an arbitrary method (not just ``forward``) over the stacked params by
+    # wrapping the reference module so ``functional_call`` targets that method,
+    # keeping the stacked-param keys identical (see ``FunctionalMethod``).
+    target = reference_module if method == "forward" else FunctionalMethod(reference_module, method)
     module_td = TensorDict(td_items(module_td), batch_size=module_td.shape)
     n = int(np.prod(module_td.shape))
 
@@ -99,9 +135,8 @@ def run_module_arr(
     if vmap and n > 1:
         try:
             def vmap_run(module_d, ags):
-                return torch.func.functional_call(reference_module, module_d, ags, kwargs)
-            for _ in range(module_td.ndim):
-                vmap_run = torch.func.vmap(vmap_run, randomness="different")
+                return torch.func.functional_call(target, module_d, ags, kwargs)
+            vmap_run = multi_vmap(vmap_run, module_td.ndim, randomness="different")
             return vmap_run(module_td.to_dict(), args)
         except RuntimeError as e:
             warnings.warn(
@@ -120,7 +155,7 @@ def run_module_arr(
     single_args_list = [tree_unflatten(single_flat_args, args_spec) for single_flat_args in single_flat_args_list]
 
     single_out_list = [
-        torch.func.functional_call(reference_module, module_td.view(n)[idx].to_dict(), single_args)
+        torch.func.functional_call(target, module_td.view(n)[idx].to_dict(), single_args)
         for idx, single_args in enumerate(single_args_list)
     ]
     _, out_spec = tree_flatten(single_out_list[0])

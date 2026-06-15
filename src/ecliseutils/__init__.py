@@ -24,6 +24,7 @@ from . import (
     memory,
     modules,
     ode,
+    optim,
     plotting,
     recursive,
     settings,
@@ -41,6 +42,7 @@ from .modules import (
     stack_module_arr_preserve_reference,
     run_module_arr,
     multi_vmap,
+    FunctionalMethod,
     buffer_dict,
     td_items,
     td_get,
@@ -83,6 +85,8 @@ from .are import (
 from .ode import linspace, geomspace, batch_odeint
 from .ensemble import EnsembleModule, DEFAULT_SPLIT_SIZE
 from .fast_conv_scan import ConvScanFn, conv_scan, DenseLinearScanFn, dense_linear_scan
+from .scan import scan
+from .optim import sgd_step, apply_updates
 from .recursive import rgetattr, rsetattr, rhasattr, rgetitem, rsetitem
 from .dicts import flatten_nested_dict, map_dict, nested_type, print_dict, call_func_with_kwargs, hash_hex
 from .io import torch_load, empty_cache, reset_seed, model_size
@@ -96,4 +100,4 @@ from .timing import Timer, identity, PTR, print_disabled, print_enabled, track_c
 from .plotting import color, confidence_ellipse
 
 
-__version__ = "0.1.0"
+__version__ = "0.1.2"
