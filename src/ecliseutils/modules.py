@@ -206,7 +206,7 @@ def parameter_td(m: nn.Module) -> TensorDict:
 
 def mask_dataset_with_total_sequence_length(ds: TensorDict, total_sequence_length: int) -> TensorDict:
     batch_size, sequence_length = ds.shape[-2:]
-    ds["mask"] = torch.Tensor(torch.arange(batch_size * sequence_length) < total_sequence_length).view(
+    ds["mask"] = (torch.arange(batch_size * sequence_length) < total_sequence_length).view(
         sequence_length, batch_size
     ).mT.expand(ds.shape)
     return ds

@@ -36,11 +36,14 @@ def multi_enumerate(arr: "np.ndarray | LabeledArray") -> Iterable[tuple[Sequence
 
 def multi_map(func: Callable[[Any], Any], arr: "np.ndarray | LabeledArray", dtype: type = None):
     base = as_ndarray(arr)
+    # Apply ``func`` exactly once per element (the old dtype-inference path called it
+    # twice on the first element).
+    computed = [(idx, func(x)) for idx, x in multi_enumerate(base)]
     if dtype is None:
-        dtype = type(func(base.ravel()[0]))
+        dtype = type(computed[0][1])
     result = np.empty_like(base, dtype=dtype)
-    for idx, x in multi_enumerate(base):
-        result[idx] = func(x)
+    for idx, value in computed:
+        result[idx] = value
     return LabeledArray(result, arr.dims) if isinstance(arr, LabeledArray) else result
 
 

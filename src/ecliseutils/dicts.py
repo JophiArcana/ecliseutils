@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import functools
 import hashlib
 import inspect
 from typing import Any, Callable
@@ -61,8 +62,15 @@ def print_dict(d: "dict[str, Any] | object", n: int = 0, indent: int = 4) -> Non
         print("\n".join([" " * (n * indent) + s for s in to_print.split("\n")]))
 
 
+@functools.lru_cache(maxsize=None)
+def _signature_parameters(func: Callable):
+    """Cached ``inspect.signature(func).parameters`` (signature inspection is the
+    dominant cost when this is called in a hot loop)."""
+    return inspect.signature(func).parameters
+
+
 def call_func_with_kwargs(func: Callable, args: tuple[Any, ...], kwargs: dict[str, Any]):
-    params = inspect.signature(func).parameters
+    params = _signature_parameters(func)
     required_args = [
         kwargs[k] if k in kwargs else args[i] for i, (k, v) in enumerate(params.items())
         if v.kind is inspect.Parameter.POSITIONAL_OR_KEYWORD and v.default is inspect.Parameter.empty

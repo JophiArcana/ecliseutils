@@ -17,7 +17,9 @@ __all__ = ["torch_load", "empty_cache", "reset_seed", "model_size", "array_of"]
 
 
 def torch_load(f: "Any", **kwargs) -> Any:
-    return torch.load(f, map_location=settings.DEVICE, weights_only=False)
+    kwargs.setdefault("map_location", settings.DEVICE)
+    kwargs.setdefault("weights_only", False)
+    return torch.load(f, **kwargs)
 
 
 def empty_cache():

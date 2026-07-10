@@ -37,6 +37,16 @@ def _rand_spd(n, seed=0):
     return M @ M.mT + n * torch.eye(n, dtype=torch.float64)
 
 
+def _pow_series_naive(M, n):
+    """Reference ``[M^0, M^1, ..., M^{n-1}]`` via a plain (autograd-friendly) loop."""
+    N = M.shape[-1]
+    I = torch.eye(N, dtype=M.dtype).expand(*M.shape[:-2], N, N)
+    powers = [I]
+    for _ in range(1, n):
+        powers.append(powers[-1] @ M)
+    return torch.stack(powers, dim=-3)
+
+
 def test_sqrtm_roundtrip():
     M = _rand_spd(5, seed=1)
     S = eu.sqrtm(M)
@@ -236,6 +246,65 @@ def test_hadamard_conjugation_matches_loop():
                     acc = acc + A[mm, i] * B[pp, j] * C[mm, pp] * coeff
             ref[i, j] = acc
     assert torch.allclose(result.to(torch.complex128), ref, atol=1e-9)
+
+
+def test_pow_series_matches_naive():
+    g = torch.Generator().manual_seed(12)
+    n = 6
+    # Unbatched, well-conditioned (eig path).
+    M = 0.5 * torch.randn(4, 4, generator=g, dtype=torch.float64)
+    assert torch.allclose(eu.pow_series(M, n), _pow_series_naive(M, n), atol=1e-8)
+
+    # Batched.
+    Mb = 0.5 * torch.randn(3, 4, 4, generator=g, dtype=torch.float64)
+    assert eu.pow_series(Mb, n).shape == (3, n, 4, 4)
+    assert torch.allclose(eu.pow_series(Mb, n), _pow_series_naive(Mb, n), atol=1e-8)
+
+    # n == 1 is just [I].
+    assert torch.allclose(eu.pow_series(M, 1), torch.eye(4, dtype=torch.float64)[None], atol=1e-12)
+
+
+def test_pow_series_gradcheck():
+    """The explicit (eig-free) backward matches numerical gradients for a
+    well-conditioned (diagonalizable) matrix."""
+    g = torch.Generator().manual_seed(13)
+    M = 0.4 * torch.randn(3, 3, generator=g, dtype=torch.float64)
+    assert torch.autograd.gradcheck(
+        lambda X: eu.pow_series(X, 5), (M.clone().requires_grad_(True),), atol=1e-5, rtol=1e-4)
+
+
+def test_pow_series_defective_fallback():
+    """A nilpotent Jordan block has a rank-deficient eigenvector basis, so the
+    eig path is skipped in favor of repeated squaring; the sequential adjoint
+    backward must still match autograd through the naive powers exactly."""
+    M = torch.tensor([[0., 0., 0.], [1., 0., 0.], [0., 1., 0.]], dtype=torch.float64)
+    n = 5
+
+    assert torch.allclose(eu.pow_series(M, n), _pow_series_naive(M, n), atol=1e-10)
+
+    g = torch.Generator().manual_seed(14)
+    w = torch.randn(n, 3, 3, generator=g, dtype=torch.float64)
+
+    M1 = M.clone().requires_grad_(True)
+    (eu.pow_series(M1, n) * w).sum().backward()
+    M2 = M.clone().requires_grad_(True)
+    (_pow_series_naive(M2, n) * w).sum().backward()
+
+    assert torch.isfinite(M1.grad).all()
+    assert torch.allclose(M1.grad, M2.grad, atol=1e-8)
+
+
+def test_kl_div_matches_det_inverse_form():
+    def ref(c1, c2):
+        return ((torch.det(c2) / torch.det(c1)).log() - c1.shape[-1]
+                + (torch.inverse(c2) * c1).sum(dim=(-2, -1))) / 2
+
+    cov1, cov2 = _rand_spd(4, seed=50), _rand_spd(4, seed=51)
+    assert torch.allclose(eu.kl_div(cov1, cov2), ref(cov1, cov2), atol=1e-8)
+
+    C1 = torch.stack([_rand_spd(4, 60 + i) for i in range(3)])
+    C2 = torch.stack([_rand_spd(4, 70 + i) for i in range(3)])
+    assert torch.allclose(eu.kl_div(C1, C2), ref(C1, C2), atol=1e-8)
 
 
 def test_labeled_array_take_and_broadcast():

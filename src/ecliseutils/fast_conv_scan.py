@@ -19,8 +19,10 @@ class ConvScanFn(torch.autograd.Function):
             chunk_size: int,        # int: C (accepted for API compatibility; unused)
     ) -> torch.Tensor:              # float: [... x (L + 1)]
         with torch.no_grad():
-            out = _conv_scan_fwd(A, B)
-        ctx.save_for_backward(A, out)
+            exp_A = torch.exp(A)                # float: [... x L]  (per-step gain)
+            out = _conv_scan_fwd_gain(exp_A, B)
+        # Cache the gains (not A): the backward needs exp(A) twice and never needs A.
+        ctx.save_for_backward(exp_A, out)
         return out
 
     @staticmethod
@@ -28,19 +30,25 @@ class ConvScanFn(torch.autograd.Function):
             ctx,
             dout: torch.Tensor,     # float: [... x (L + 1)]
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        A, out = ctx.saved_tensors
+        exp_A, out = ctx.saved_tensors
         with torch.no_grad():
-            dA, dB = _conv_scan_bwd(dout, {"A": A, "out": out,})
+            dA, dB = _conv_scan_bwd(dout, {"exp_A": exp_A, "out": out,})
         return dA, dB, None
 
 
-def _conv_scan_fwd(
-        A: torch.Tensor,    # float: [... x L]
-        B: torch.Tensor,    # float: [... x (L + 1)]
-) -> torch.Tensor:          # float: [... x (L + 1)]
-    *bsz, L = A.shape
-    A_, out = torch.ones_like(B), B.clone()     # float: [... x (L + 1)]
-    torch.exp(A, out=A_[..., 1:])               # float: [... x (L + 1)]
+def _conv_scan_fwd_gain(
+        exp_A: torch.Tensor,    # [... x L]        (multiplicative gain per step)
+        B: torch.Tensor,        # [... x (L + 1)]
+) -> torch.Tensor:              # [... x (L + 1)]
+    """Doubling cumulative scan ``out[k] = exp_A[k-1] * out[k-1] + B[k]`` (``out[0] = B[0]``).
+
+    Operates directly in the *gain* domain (``exp_A`` are the per-step multipliers),
+    so a caller that already holds gains -- eigenvalues of a transition matrix, a
+    matrix-power ratio -- need not round-trip through ``log`` then ``exp``.
+    """
+    *bsz, L = exp_A.shape
+    A_, out = torch.ones_like(B), B.clone()     # [... x (L + 1)]
+    A_[..., 1:] = exp_A
 
     k = 1
     while k <= L:
@@ -50,15 +58,22 @@ def _conv_scan_fwd(
     return out
 
 
+def _conv_scan_fwd(
+        A: torch.Tensor,    # float: [... x L]
+        B: torch.Tensor,    # float: [... x (L + 1)]
+) -> torch.Tensor:          # float: [... x (L + 1)]
+    """Log-domain wrapper: ``A`` holds log-gains, so the per-step gain is ``exp(A)``."""
+    return _conv_scan_fwd_gain(torch.exp(A), B)
+
+
 def _conv_scan_bwd(
         dout: torch.Tensor,     # float: [... x (L + 1)]
         cache: dict[str, torch.Tensor],
 ) -> tuple[torch.Tensor, torch.Tensor]:     # float: [... x L], [... x (L + 1)]
-    A = cache["A"]                                                          # float: [... x L]
-    dB = _conv_scan_fwd(A.flip(dims=(-1,)), dout).flip(dims=(-1,))          # float: [... x (L + 1)]
+    exp_A = cache["exp_A"]                                                  # float: [... x L]
+    dB = _conv_scan_fwd_gain(exp_A.flip(dims=(-1,)), dout).flip(dims=(-1,)) # float: [... x (L + 1)]
     out = cache["out"]                      # float: [... x (L + 1)]
 
-    exp_A = torch.exp(A)                                                    # float: [... x L]
     dA = einops.einsum(dB[..., 1:], out[..., :-1], exp_A, "..., ..., ... -> ...")   # float: [... x L]
     return dA, dB
 
@@ -107,8 +122,8 @@ class DenseLinearScanFn(torch.autograd.Function):
             Vinv = inverse(V)                                                   # complex: [Bm... x n x n]
 
             beta = (complex(B) @ Vinv.mT).mT                                    # complex: [B... x n x (L + 1)]
-            A = torch.log(D)[..., :, None].expand(*beta.shape[:-1], L)          # complex: [B... x n x L]
-            z = _conv_scan_fwd(A, beta)                                         # complex: [B... x n x (L + 1)]
+            gains = D[..., :, None].expand(*beta.shape[:-1], L)                 # complex: [B... x n x L]  (eigenvalue per step)
+            z = _conv_scan_fwd_gain(gains, beta)                                # complex: [B... x n x (L + 1)]
             states = torch.real((V @ z).mT)                                     # float:   [B... x (L + 1) x n]
 
         ctx.save_for_backward(M, D, V, Vinv, states)
@@ -125,9 +140,9 @@ class DenseLinearScanFn(torch.autograd.Function):
             # Adjoint recurrence lambda[t] = M^T lambda[t+1] + grad_s[t], solved in the
             # modal basis of M^T (= Vinv^T diag(D) V^T) by a reverse diagonal scan.
             gamma = (complex(grad_states) @ V).mT                               # complex: [B... x n x L]  (V^T grad_s)
-            A = torch.log(D)[..., :, None].expand(*gamma.shape)                 # complex: [B... x n x L]
+            gains = D[..., :, None].expand(*gamma.shape)                        # complex: [B... x n x L]  (eigenvalue per step)
             zeros = torch.zeros_like(gamma[..., :1])
-            nu = _conv_scan_fwd(A, torch.cat([zeros, gamma.flip(dims=(-1,))], dim=-1))  # complex: [B... x n x (L + 1)]
+            nu = _conv_scan_fwd_gain(gains, torch.cat([zeros, gamma.flip(dims=(-1,))], dim=-1))  # complex: [B... x n x (L + 1)]
             mu = nu[..., 1:].flip(dims=(-1,))                                   # complex: [B... x n x L]  (V^T lambda)
             lam = Vinv.mT @ mu                                                  # complex: [B... x n x L]  (lambda columns)
 

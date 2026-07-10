@@ -71,8 +71,14 @@ class EnsembleModule:
 
         # numel (or the trace dimension) can be 0 for an empty dataset; torch.chunk requires chunks >= 1.
         results, n_chunks = [], max(1, ceildiv(numel, split_size))
-        for chunk_indices in torch.chunk(torch.arange(_dataset.shape[-2]), chunks=n_chunks, dim=0):
-            slice_td = _dataset.reshape(-1, *_dataset.shape[-2:])[:, chunk_indices].view(*shape, -1, L)
+        flat = _dataset.reshape(-1, *_dataset.shape[-2:])
+        # torch.chunk over a contiguous index range yields contiguous blocks, so slice
+        # by [start:stop] (a view) instead of advanced-indexing (which copies each chunk).
+        start = 0
+        for chunk in torch.chunk(torch.arange(_dataset.shape[-2]), chunks=n_chunks, dim=0):
+            size = chunk.shape[0]
+            slice_td = flat[:, start:start + size].view(*shape, -1, L)
+            start += size
             results.append(per_chunk(slice_td))
             # Reclaim memory only when we actually split for memory reasons. ``empty_cache``
             # (gc.collect + cuda.empty_cache) is expensive and serves no purpose for a single chunk.
